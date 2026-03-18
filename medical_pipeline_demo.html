@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Pipeline Diagnostic IA</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#060f1e;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;}
+  ::-webkit-scrollbar{width:5px;height:5px;}
+  ::-webkit-scrollbar-track{background:#0b1628;}
+  ::-webkit-scrollbar-thumb{background:#1e3a5f;border-radius:3px;}
+  textarea:focus,input:focus{border-color:rgb(6,182,212)!important;outline:none;box-shadow:0 0 0 2px rgba(6,182,212,0.15);}
+  button:hover{opacity:0.88;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .spin{display:inline-block;animation:spin 1s linear infinite;}
+  .pulse{animation:pulse 1.2s ease-in-out infinite;}
+  .fadein{animation:fadeIn 0.4s ease-out;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+const API = "https://api.anthropic.com/v1/messages";
+
+async function callClaude(messages, system = "", maxTokens = 1000) {
+  const r = await fetch(API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: maxTokens, ...(system && { system }), messages })
+  });
+  const d = await r.json();
+  if (d.error) throw new Error(d.error.message);
+  return d.content[0].text;
+}
+
+function parseJSON(text) {
+  try { return JSON.parse(text.replace(/```json\n?|```/g,"").trim()); }
+  catch { return null; }
+}
+
+const C = { bg:"#060f1e", surf:"#0b1628", card:"#0f2240", brd:"#1e3a5f", cyan:"rgb(6,182,212)", violet:"#a78bfa", orange:"#f97316", green:"#22c55e", yellow:"#f59e0b", red:"#ef4444", txt:"#e2e8f0", dim:"#94a3b8", muted:"#64748b" };
+
+const PHASES = [{id:1,label:"Collecte"},{id:2,label:"Structuration"},{id:3,label:"Pipeline IA"},{id:4,label:"Validation"}];
+const STEPS_DEF = [
+  {id:1,code:"PI",name:"Initialisation",desc:"Contextualisation clinique",color:C.orange},
+  {id:2,code:"IA₁",name:"Génération diagnostique",desc:"Premier raisonnement",color:C.violet},
+  {id:3,code:"IA₂",name:"Évaluation LLM",desc:"Optimisation du prompt",color:C.violet},
+  {id:4,code:"IA₃",name:"IA prédictive",desc:"Hypothèses finales",color:C.violet},
+];
+
+const card = (extra={}) => ({background:C.card,border:`1px solid ${C.brd}`,borderRadius:12,padding:20,...extra});
+const inp = {width:"100%",background:C.surf,border:`1px solid ${C.brd}`,borderRadius:6,padding:"8px 12px",color:C.txt,fontSize:13,fontFamily:"inherit"};
+const btn = (bg=C.cyan,outline=false) => ({background:outline?"transparent":bg,color:outline?bg:"#000",border:`1px solid ${bg}`,borderRadius:6,padding:"9px 20px",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",transition:"opacity 0.15s"});
+const HYPO_C = [C.red, C.yellow, C.green];
+const URGENCE_C = {haute:C.red,moyenne:C.yellow,faible:C.green};
+
+function PhaseStepper({phase,setPhase}) {
+  return (
+    <div style={{display:"flex",alignItems:"center"}}>
+      {PHASES.map((p,i) => (
+        <React.Fragment key={p.id}>
+          <div
+            onClick={() => phase > p.id && setPhase(p.id)}
+            style={{display:"flex",alignItems:"center",gap:7,padding:"6px 14px",borderRadius:20,background:phase===p.id?"rgba(6,182,212,0.15)":"transparent",border:phase===p.id?`1px solid ${C.cyan}`:"1px solid transparent",cursor:phase>p.id?"pointer":"default"}}
+          >
+            <div style={{width:20,height:20,borderRadius:"50%",background:phase>p.id?C.green:phase===p.id?C.cyan:C.brd,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:phase>=p.id?"#000":C.muted}}>
+              {phase>p.id?"✓":p.id}
+            </div>
+            <span style={{fontSize:12,fontWeight:phase===p.id?600:400,color:phase===p.id?C.cyan:phase>p.id?C.dim:C.muted}}>{p.label}</span>
+          </div>
+          {i<3 && <div style={{width:20,height:1,background:phase>p.id?C.green:C.brd}}/>}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+function Phase1({onNext}) {
+  const [transcription, setTranscription] = useState("");
+  const [isRec, setIsRec] = useState(false);
+  const [vitals, setVitals] = useState({tension:"120/80",fc:"72",temperature:"37.2",poids:"75",spo2:"98",glycemie:"5.4"});
+  const [questions, setQuestions] = useState([]);
+  const [checked, setChecked] = useState({});
+  const [loadingQ, setLoadingQ] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const recRef = useRef(null), timerRef = useRef(null);
+
+  const startRec = () => {
+    setIsRec(true); setTranscription("");
+    const lines = [
+      "Bonjour docteur, j'ai des douleurs dans la poitrine depuis ce matin. ",
+      "La douleur irradie dans le bras gauche et j'ai du mal à respirer. ",
+      "C'est assez intense, je dirais 7 sur 10. J'ai transpiré abondamment il y a une heure. ",
+      "J'ai de l'hypertension depuis 3 ans et mon père a eu un infarctus à 55 ans.",
+    ];
+    let i = 0;
+    recRef.current = setInterval(() => {
+      if (i < lines.length) { setTranscription(p => p + lines[i]); i++; }
+      else { clearInterval(recRef.current); setIsRec(false); }
+    }, 1800);
+  };
+
+  useEffect(() => {
+    if (transcription.length < 50) return;
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      setLoadingQ(true);
+      try {
+        const r = await callClaude([{role:"user",content:`Patient: "${transcription.substring(0,400)}"\n\nGénère 8 questions diagnostiques cliniques en français. UNIQUEMENT un JSON array de strings.`}],
+          "Tu es un assistant médical. Réponds uniquement en JSON array valide.");
+        const p = parseJSON(r);
+        if (p && Array.isArray(p)) setQuestions(p.slice(0,8));
+      } catch {
+        setQuestions(["Antécédents cardiovasculaires familiaux ?","Début et intensité de la douleur ?","Irradiation bras gauche ou mâchoire ?","Dyspnée au repos ou à l'effort ?","Facteurs de risque cardiovasculaire ?","Médicaments en cours ?","Fièvre ou frissons associés ?","Épisodes similaires antérieurs ?"]);
+      }
+      setLoadingQ(false);
+    }, 2000);
+  }, [transcription]);
+
+  const handleExtract = async () => {
+    setExtracting(true);
+    const confirmed = questions.filter((_,i) => checked[i]);
+    try {
+      const r = await callClaude([{role:"user",content:`Extrais et normalise:\nTranscription: "${transcription}"\nConstantes: ${JSON.stringify(vitals)}\nSymptômes confirmés: ${JSON.stringify(confirmed)}\nRéponds UNIQUEMENT en JSON avec: motif_consultation, symptomes_principaux, constantes_vitales, antecedents, symptomes_confirmes, urgence_estimee, contexte_clinique`}],
+        "Tu es une IA d'extraction médicale. Retourne uniquement un JSON valide.");
+      const data = parseJSON(r) || {motif_consultation:"Douleur thoracique",constantes_vitales:vitals,symptomes_confirmes:confirmed};
+      onNext(data);
+    } catch {
+      onNext({motif_consultation:transcription.substring(0,100),constantes_vitales:vitals,symptomes_confirmes:questions.filter((_,i)=>checked[i])});
+    }
+    setExtracting(false);
+  };
+
+  return (
+    <div className="fadein">
+      <div style={{marginBottom:20}}>
+        <h2 style={{margin:"0 0 4px",fontSize:20,fontWeight:700}}>Phase 1 — Collecte des données patient</h2>
+        <p style={{margin:0,color:C.dim,fontSize:13}}>Transcription, constantes vitales et questions diagnostiques dynamiques</p>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 0.65fr 0.85fr",gap:16}}>
+        {/* Transcription */}
+        <div style={card()}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div>
+              <div style={{fontWeight:600,fontSize:14,marginBottom:2}}>Transcription</div>
+              <div style={{fontSize:12,color:C.muted}}>Retranscription en temps réel</div>
+            </div>
+            <button style={{...btn(isRec?C.red:C.cyan,true),padding:"6px 14px",fontSize:12,display:"flex",alignItems:"center",gap:6}}
+              onClick={() => { if(isRec){clearInterval(recRef.current);setIsRec(false);}else startRec(); }}>
+              <div className={isRec?"pulse":""} style={{width:7,height:7,borderRadius:"50%",background:isRec?C.red:C.cyan}}/>
+              {isRec?"Arrêter":"Simuler enregistrement"}
+            </button>
+          </div>
+          {isRec && (
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,padding:"6px 10px",background:"rgba(239,68,68,0.08)",borderRadius:6,border:"1px solid rgba(239,68,68,0.25)"}}>
+              <div style={{width:6,height:6,borderRadius:"50%",background:C.red,animation:"pulse 1s ease-in-out infinite"}}/>
+              <span style={{fontSize:11,color:C.red,fontWeight:600,letterSpacing:"0.05em"}}>ENREGISTREMENT EN COURS</span>
+            </div>
+          )}
+          <textarea value={transcription} onChange={e=>setTranscription(e.target.value)}
+            placeholder="La transcription de la consultation apparaîtra ici..."
+            style={{...inp,height:200,resize:"vertical",lineHeight:1.6}}/>
+          <div style={{marginTop:6,fontSize:11,color:C.muted,textAlign:"right"}}>{transcription.length} caractères</div>
+        </div>
+        {/* Vitaux */}
+        <div style={card()}>
+          <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>Constantes vitales</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:14}}>Mesures biométriques</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            {[{k:"tension",l:"Tension (mmHg)"},{k:"fc",l:"FC (bpm)"},{k:"temperature",l:"Temp. (°C)"},{k:"poids",l:"Poids (kg)"},{k:"spo2",l:"SpO₂ (%)"},{k:"glycemie",l:"Glycémie (g/L)"}]
+              .map(({k,l}) => (
+                <div key={k}>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:4,fontWeight:500,textTransform:"uppercase",letterSpacing:"0.04em"}}>{l}</div>
+                  <input style={inp} value={vitals[k]} onChange={e=>setVitals(v=>({...v,[k]:e.target.value}))}/>
+                </div>
+              ))}
+          </div>
+        </div>
+        {/* Questions */}
+        <div style={card()}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div>
+              <div style={{fontWeight:600,fontSize:14,marginBottom:2}}>Questions diagnostiques</div>
+              <div style={{fontSize:12,color:C.muted}}>Générées par l'IA • Cochez les éléments positifs</div>
+            </div>
+            {loadingQ && <span style={{fontSize:11,color:C.cyan}}><span className="spin">⟳</span> Génération...</span>}
+          </div>
+          {questions.length===0 ? (
+            <div style={{textAlign:"center",padding:"32px 0",color:C.muted,fontSize:13,lineHeight:1.8}}>
+              Saisissez la transcription<br/>pour générer les questions diagnostiques
+            </div>
+          ) : (
+            <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:260,overflowY:"auto"}}>
+              {questions.map((q,i) => (
+                <label key={i} style={{display:"flex",gap:10,cursor:"pointer",padding:"7px 10px",borderRadius:6,background:checked[i]?"rgba(34,197,94,0.08)":"transparent",border:`1px solid ${checked[i]?"rgba(34,197,94,0.3)":C.brd}`,transition:"all 0.15s",alignItems:"flex-start"}}>
+                  <input type="checkbox" checked={!!checked[i]} onChange={e=>setChecked(c=>({...c,[i]:e.target.checked}))} style={{marginTop:2,accentColor:C.green,flexShrink:0}}/>
+                  <span style={{fontSize:12,lineHeight:1.5,color:checked[i]?C.txt:C.dim}}>{q}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      <div style={{marginTop:18,display:"flex",justifyContent:"flex-end",gap:12,alignItems:"center"}}>
+        <span style={{fontSize:12,color:C.muted}}>{Object.values(checked).filter(Boolean).length} symptôme(s) confirmé(s)</span>
+        <button disabled={transcription.length<20||extracting} onClick={handleExtract}
+          style={{...btn(C.cyan),opacity:transcription.length<20||extracting?0.45:1,cursor:transcription.length<20||extracting?"not-allowed":"pointer"}}>
+          {extracting?<><span className="spin">⟳</span> Extraction...</>:"Extraire et structurer →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Phase2({data, onNext, onBack}) {
+  const [sd, setSd] = useState(data);
+  return (
+    <div className="fadein">
+      <div style={{marginBottom:20}}>
+        <h2 style={{margin:"0 0 4px",fontSize:20,fontWeight:700}}>Phase 2 — Structuration & validation</h2>
+        <p style={{margin:0,color:C.dim,fontSize:13}}>Vérifiez les données extraites. Votre validation engage votre responsabilité clinique.</p>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <div style={card()}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+            <span style={{background:"rgba(6,182,212,0.15)",border:`1px solid ${C.cyan}`,color:C.cyan,fontSize:10,padding:"2px 8px",borderRadius:4,fontFamily:"monospace"}}>JSON</span>
+            <div style={{fontWeight:600,fontSize:14}}>Fichier structuré normalisé</div>
+          </div>
+          <pre style={{background:C.surf,border:`1px solid ${C.brd}`,borderRadius:8,padding:14,fontSize:11,overflow:"auto",maxHeight:380,color:C.dim,lineHeight:1.7,margin:0,fontFamily:"monospace"}}>
+            {JSON.stringify(sd,null,2)}
+          </pre>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          {[
+            {l:"Motif de consultation",v:sd.motif_consultation,c:C.cyan},
+            {l:"Urgence estimée",v:sd.urgence_estimee,c:URGENCE_C[sd.urgence_estimee?.toLowerCase()]||C.yellow},
+            {l:"Symptômes principaux",v:Array.isArray(sd.symptomes_principaux)?sd.symptomes_principaux.join(", "):sd.symptomes_principaux,c:C.violet},
+            {l:"Contexte clinique",v:sd.contexte_clinique||sd.contexte,c:C.dim},
+          ].map(({l,v,c},i)=>(
+            <div key={i} style={{...card({padding:14}),borderLeft:`3px solid ${c}`}}>
+              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4,fontWeight:600}}>{l}</div>
+              <div style={{fontSize:13,lineHeight:1.5}}>{v||"—"}</div>
+            </div>
+          ))}
+          <div style={{...card({padding:14}),background:"rgba(34,197,94,0.05)",borderColor:"rgba(34,197,94,0.35)"}}>
+            <div style={{fontSize:12,color:C.green,fontWeight:600,marginBottom:6}}>✓ Point de contrôle infirmier</div>
+            <div style={{fontSize:12,color:C.dim,lineHeight:1.6}}>En validant ces données, vous confirmez leur exactitude et autorisez le lancement du pipeline IA.</div>
+          </div>
+        </div>
+      </div>
+      <div style={{marginTop:20,display:"flex",justifyContent:"space-between"}}>
+        <button onClick={onBack} style={btn(C.cyan,true)}>← Modifier</button>
+        <button onClick={()=>onNext(sd)} style={btn(C.green)}>Valider et lancer →</button>
+      </div>
+    </div>
+  );
+}
+
+function Phase3({data, onNext, onBack}) {
+  const [steps, setSteps] = useState(STEPS_DEF.map(s=>({...s,status:"idle",output:""})));
+  const [running, setRunning] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+
+  const upd = (id, u) => setSteps(p=>p.map(s=>s.id===id?{...s,...u}:s));
+
+  const run = async () => {
+    setRunning(true);
+    setSteps(STEPS_DEF.map(s=>({...s,status:"idle",output:""})));
+    setExpanded(null);
+    const ctx = JSON.stringify(data,null,2);
+    try {
+      upd(1,{status:"running"});
+      const s1 = await callClaude([{role:"user",content:`Données patient:\n${ctx}\n\nInitialise le contexte clinique pour le pipeline diagnostique. Synthétise les éléments clés.`}],"Tu es l'IA d'initialisation du pipeline médical. Contextualise rigoureusement le cas.");
+      upd(1,{status:"done",output:s1});
+
+      upd(2,{status:"running"});
+      const s2 = await callClaude([
+        {role:"user",content:s1},
+        {role:"assistant",content:"Contexte clinique établi. Génération du diagnostic différentiel."},
+        {role:"user",content:"Génère un diagnostic différentiel complet avec justification clinique et drapeaux rouges à surveiller."}
+      ],"Tu es une IA médicale spécialisée en diagnostic différentiel. Sois rigoureux et exhaustif.");
+      upd(2,{status:"done",output:s2});
+
+      upd(3,{status:"running"});
+      const s3 = await callClaude([{role:"user",content:`Raisonnement à évaluer:\n${s2}\n\nÉvalue la cohérence clinique et l'exhaustivité. Produis un prompt diagnostique optimisé et raffiné pour l'étape prédictive.`}],"Tu es un LLM d'évaluation médicale. Optimise le raisonnement diagnostique.");
+      upd(3,{status:"done",output:s3});
+
+      upd(4,{status:"running"});
+      const s4 = await callClaude([{role:"user",content:`Prompt optimisé:\n${s3}\n\nContexte:\n${ctx}\n\nRéponds UNIQUEMENT avec ce JSON:\n{"hypotheses":[{"rang":1,"diagnostic":"...","probabilite":60,"cim10":"...","justification":"...","examens":["..."]},{"rang":2,"diagnostic":"...","probabilite":30,"cim10":"...","justification":"...","examens":["..."]},{"rang":3,"diagnostic":"...","probabilite":10,"cim10":"...","justification":"...","examens":["..."]}],"urgence":"haute|moyenne|faible","recommandation":"...","score_confiance":85}`}],"Tu es l'IA médicale prédictive finale. Retourne uniquement un JSON valide sans markdown.");
+      const diag = parseJSON(s4) || {
+        hypotheses:[
+          {rang:1,diagnostic:"Syndrome coronarien aigu",probabilite:65,cim10:"I21",justification:"Douleur thoracique typique, irradiation, facteurs de risque",examens:["ECG 12D","Troponines","Radiographie thorax"]},
+          {rang:2,diagnostic:"Dissection aortique",probabilite:20,cim10:"I71.0",justification:"Douleur intense, HTA, à exclure en urgence",examens:["AngioTDM thorax"]},
+          {rang:3,diagnostic:"Embolie pulmonaire",probabilite:15,cim10:"I26",justification:"Dyspnée associée, à éliminer",examens:["D-dimères","Echo cardiaque"]}
+        ],
+        urgence:"haute",recommandation:"Hospitalisation immédiate. Monitoring cardiaque continu. Voie veineuse.",score_confiance:83
+      };
+      upd(4,{status:"done",output:s4});
+      onNext(diag);
+    } catch(e) { console.error(e); }
+    setRunning(false);
+  };
+
+  const doneCount = steps.filter(s=>s.status==="done").length;
+
+  return (
+    <div className="fadein">
+      <div style={{marginBottom:20}}>
+        <h2 style={{margin:"0 0 4px",fontSize:20,fontWeight:700}}>Phase 3 — Pipeline de raisonnement diagnostique</h2>
+        <p style={{margin:0,color:C.dim,fontSize:13}}>4 étapes de traitement IA en cascade — prompt enrichi à chaque passage</p>
+      </div>
+      <div style={card({marginBottom:16})}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 28px 1fr 28px 1fr 28px 1fr",gap:0,alignItems:"center"}}>
+          {steps.map((step,i) => {
+            const {status,color} = step;
+            return (
+              <React.Fragment key={step.id}>
+                <div onClick={()=>status==="done"&&setExpanded(expanded===step.id?null:step.id)}
+                  style={{padding:"14px 15px",borderRadius:10,border:`1px solid ${status==="idle"?C.brd:color}`,background:status==="done"?`${color}12`:status==="running"?`${color}08`:C.surf,cursor:status==="done"?"pointer":"default",transition:"all 0.3s",userSelect:"none"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    <div style={{width:26,height:26,borderRadius:6,background:status==="idle"?C.brd:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:status==="idle"?C.muted:"#000"}}>
+                      {status==="running"?<span className="spin">⟳</span>:status==="done"?"✓":step.code}
+                    </div>
+                    <div style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:status==="done"?`${color}20`:status==="running"?`${color}12`:`${C.brd}80`,color:status==="done"?color:status==="running"?color:C.muted,fontWeight:600}}>
+                      {status==="idle"?"En attente":status==="running"?"Traitement...":"Terminé ↓"}
+                    </div>
+                  </div>
+                  <div style={{fontWeight:600,fontSize:12,marginBottom:3}}>{step.name}</div>
+                  <div style={{fontSize:11,color:C.muted}}>{step.desc}</div>
+                </div>
+                {i<3&&<div style={{display:"flex",justifyContent:"center",color:C.muted,fontSize:16}}>→</div>}
+              </React.Fragment>
+            );
+          })}
+        </div>
+        {(running||doneCount>0) && (
+          <div style={{marginTop:14,height:4,background:C.brd,borderRadius:2,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${doneCount*25}%`,background:`linear-gradient(90deg,${C.cyan},${C.violet})`,borderRadius:2,transition:"width 0.5s ease"}}/>
+          </div>
+        )}
+      </div>
+
+      {expanded && (
+        <div className="fadein" style={{...card({marginBottom:16}),borderColor:steps[expanded-1].color}}>
+          <div style={{fontWeight:600,fontSize:13,marginBottom:10,color:steps[expanded-1].color}}>
+            Sortie — {steps[expanded-1].name}
+          </div>
+          <div style={{background:C.surf,borderRadius:8,padding:14,fontSize:12,lineHeight:1.7,color:C.dim,maxHeight:200,overflow:"auto",whiteSpace:"pre-wrap"}}>
+            {steps[expanded-1].output}
+          </div>
+        </div>
+      )}
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8}}>
+        <button onClick={onBack} style={btn(C.cyan,true)}>← Retour</button>
+        {!running && steps.every(s=>s.status==="idle") && (
+          <button onClick={run} style={btn(C.cyan)}>🚀 Lancer le pipeline IA</button>
+        )}
+        {running && <div style={{display:"flex",alignItems:"center",gap:8,color:C.cyan,fontSize:13}}><span className="spin">⟳</span> Pipeline en cours d'exécution...</div>}
+      </div>
+    </div>
+  );
+}
+
+function Phase4({data, structData, onReset, onBack}) {
+  const [validated, setValidated] = useState(false);
+  const urgColor = URGENCE_C[data.urgence]||C.yellow;
+  return (
+    <div className="fadein">
+      <div style={{marginBottom:20}}>
+        <h2 style={{margin:"0 0 4px",fontSize:20,fontWeight:700}}>Phase 4 — Validation médicale</h2>
+        <p style={{margin:0,color:C.dim,fontSize:13}}>Hypothèses diagnostiques IA — aide à la décision. Le médecin reste décisionnaire.</p>
+      </div>
+      <div style={{display:"flex",gap:12,marginBottom:18}}>
+        <div style={{...card({padding:"12px 18px"}),display:"flex",alignItems:"center",gap:12,background:data.urgence==="haute"?"rgba(239,68,68,0.08)":"rgba(234,179,8,0.08)",borderColor:urgColor}}>
+          <span style={{fontSize:20}}>{data.urgence==="haute"?"🔴":data.urgence==="moyenne"?"🟡":"🟢"}</span>
+          <div>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Urgence</div>
+            <div style={{fontWeight:700,color:urgColor,fontSize:14,textTransform:"capitalize"}}>{data.urgence}</div>
+          </div>
+        </div>
+        <div style={{...card({padding:"12px 18px"}),display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:20}}>🎯</span>
+          <div>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Confiance IA</div>
+            <div style={{fontWeight:700,color:C.cyan,fontSize:16}}>{data.score_confiance}%</div>
+          </div>
+        </div>
+        <div style={{...card({padding:"12px 18px"}),flex:1}}>
+          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>Recommandation</div>
+          <div style={{fontSize:13,color:C.dim,lineHeight:1.5}}>{data.recommandation}</div>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:16}}>
+        {data.hypotheses?.map((h,i) => {
+          const c = HYPO_C[i]||C.dim;
+          return (
+            <div key={i} style={{...card(),borderColor:`${c}45`,background:`${c}06`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:10,color:c,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Hypothèse #{h.rang}</div>
+                <div style={{fontSize:10,color:C.muted,fontFamily:"monospace"}}>{h.cim10}</div>
+              </div>
+              <div style={{fontWeight:700,fontSize:15,marginBottom:12,lineHeight:1.3}}>{h.diagnostic}</div>
+              <div style={{marginBottom:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                  <span style={{fontSize:11,color:C.muted}}>Probabilité</span>
+                  <span style={{fontWeight:700,color:c,fontSize:18}}>{h.probabilite}%</span>
+                </div>
+                <div style={{height:6,background:C.brd,borderRadius:3,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${h.probabilite}%`,background:c,borderRadius:3,transition:"width 1s ease"}}/>
+                </div>
+              </div>
+              <div style={{fontSize:12,color:C.dim,lineHeight:1.6,marginBottom:12}}>{h.justification}</div>
+              {h.examens?.length>0 && (
+                <div>
+                  <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>Examens complémentaires</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                    {h.examens.map((e,j)=><span key={j} style={{fontSize:11,color:C.cyan,padding:"3px 8px",background:"rgba(6,182,212,0.1)",borderRadius:4}}>{e}</span>)}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{padding:"10px 14px",background:"rgba(234,179,8,0.05)",border:"1px solid rgba(234,179,8,0.25)",borderRadius:8,fontSize:12,color:C.dim,marginBottom:16,display:"flex",gap:8}}>
+        <span>⚠️</span><span>Aide à la décision uniquement. Le diagnostic final et la prise en charge relèvent de la responsabilité exclusive du médecin.</span>
+      </div>
+
+      {!validated ? (
+        <div style={{display:"flex",gap:12,justifyContent:"flex-end"}}>
+          <button onClick={onBack} style={btn(C.muted,true)}>← Revoir le pipeline</button>
+          <button style={{...btn(C.yellow,true)}} onClick={()=>alert("Fonctionnalité de modification — disponible dans la version complète")}>✏️ Modifier</button>
+          <button onClick={()=>setValidated(true)} style={btn(C.green)}>✓ Valider le diagnostic</button>
+        </div>
+      ) : (
+        <div className="fadein" style={{padding:"18px 20px",background:"rgba(34,197,94,0.08)",border:"1px solid rgba(34,197,94,0.4)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:34,height:34,borderRadius:"50%",background:C.green,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>✓</div>
+            <div>
+              <div style={{fontWeight:700,color:C.green,fontSize:14}}>Diagnostic validé par le médecin</div>
+              <div style={{fontSize:12,color:C.muted}}>Plan de soins transmis à l'infirmier(e)</div>
+            </div>
+          </div>
+          <button onClick={onReset} style={btn(C.cyan)}>Nouveau patient →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [phase, setPhase] = useState(1);
+  const [structData, setStructData] = useState(null);
+  const [diagnostic, setDiagnostic] = useState(null);
+
+  const reset = () => { setPhase(1); setStructData(null); setDiagnostic(null); };
+
+  return (
+    <div style={{minHeight:"100vh",background:C.bg}}>
+      {/* Header */}
+      <div style={{background:C.surf,borderBottom:`1px solid ${C.brd}`,padding:"13px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:34,height:34,borderRadius:8,background:"rgba(6,182,212,0.15)",border:`1px solid ${C.cyan}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🏥</div>
+          <div>
+            <div style={{fontWeight:700,fontSize:15}}>Pipeline diagnostic IA</div>
+            <div style={{fontSize:11,color:C.muted,letterSpacing:"0.06em",textTransform:"uppercase"}}>Diagnostic médical assisté</div>
+          </div>
+        </div>
+        <PhaseStepper phase={phase} setPhase={setPhase}/>
+      </div>
+      <div style={{padding:"24px 28px",maxWidth:1400,margin:"0 auto"}}>
+        {phase===1 && <Phase1 onNext={d=>{setStructData(d);setPhase(2);}}/>}
+        {phase===2 && structData && <Phase2 data={structData} onNext={d=>{setStructData(d);setPhase(3);}} onBack={()=>setPhase(1)}/>}
+        {phase===3 && <Phase3 data={structData} onNext={d=>{setDiagnostic(d);setPhase(4);}} onBack={()=>setPhase(2)}/>}
+        {phase===4 && diagnostic && <Phase4 data={diagnostic} structData={structData} onReset={reset} onBack={()=>setPhase(3)}/>}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

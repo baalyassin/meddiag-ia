@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Clés API — JAMAIS sur GitHub
+.env
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+frontend/.env*.local
+
+# Système
+.DS_Store
+Thumbs.db
