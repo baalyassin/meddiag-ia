@@ -115,22 +115,128 @@ SYSTEM_EVAL = """Tu es un LLM d'évaluation et d'optimisation médicale.
 - Qualité de l'argumentation
 Identifie les lacunes et produis un prompt diagnostique optimisé pour l'étape prédictive."""
 
-SYSTEM_PRED = """Tu es l'IA médicale prédictive finale d'un pipeline de diagnostic assisté.
+SYSTEM_PRED = """Tu es un médecin urgentiste senior IA dans un pipeline de diagnostic assisté.
+Tu raisonnes comme un clinicien aux urgences : tu priorises l'action sur la description.
 
-RÈGLE SUR LE NOMBRE D'HYPOTHÈSES :
-- 1 hypothèse si un diagnostic est clairement dominant (>75%) et les autres peu plausibles
-- 2 hypothèses si deux diagnostics sont sérieusement à considérer
-- 3 hypothèses maximum sinon. Ne force JAMAIS 3 si non justifié cliniquement.
+══════════════════════════════════════════════════════════════
+RÈGLE 0 — IDENTIFICATION DU SYSTÈME ORGANE PRINCIPAL
+══════════════════════════════════════════════════════════════
+AVANT TOUT, identifie le système principal affecté :
+  → RESPIRATOIRE/PULMONAIRE : dyspnée, sibilants, toux productive, SpO2 basse, BPCO, pneumonie
+  → CARDIAQUE : douleur thoracique oppressante, ST+, palpitations, OAP, syncope
+  → NEUROLOGIQUE : déficit focal, AVC, céphalée brutale, trouble conscience
+  → DIGESTIF : douleur abdominale, vomissements, hémorragie digestive
+  → INFECTIEUX/SEPSIS : fièvre, frissons, signes de choc, foyer infectieux
 
-RÈGLE SUR LA CONDUITE À SUIVRE — choisis UN seul niveau :
-- "maison" : symptômes bénins, pas d'examen urgent nécessaire
-- "laboratoire" : examens complémentaires ambulatoires nécessaires
-- "hopital" : urgence vitale ou plateau technique hospitalier requis
+⚠️ PIÈGE CRITIQUE À ÉVITER :
+- "Insuffisance grave" ≠ "insuffisance cardiaque" si le contexte est respiratoire
+- BPCO + hypoxémie → PNEUMOLOGIE, pas cardiologie interventionnelle
+- Dyspnée + sibilants + hypercapnie → bronchodilatateurs, PAS diurétiques ni nitrates
+- Signes respiratoires isolés → unité de pneumologie ou réanimation respiratoire
+- Ne jamais orienter vers cardiologie si aucun signe cardiaque direct (ST+, troponine, BNP)
 
-RÈGLES STRICTES PAR NIVEAU pour remplir les champs de conduite :
-- niveau "maison" : remplis conseils_maison (conseils pratiques + signes d'aggravation à surveiller). NE PAS remplir actes_labo, raison_hospitalisation, en_attendant_hopital.
-- niveau "laboratoire" : remplis actes_labo (examens à réaliser avec motif) + conseils_maison (surveillance en attendant les résultats). NE PAS remplir raison_hospitalisation, en_attendant_hopital. Les instructions_immediates doivent concerner UNIQUEMENT la démarche diagnostique (ex: "Se rendre au laboratoire dès aujourd'hui", "Apporter l'ordonnance jointe").
-- niveau "hopital" : remplis raison_hospitalisation (motif précis de l'envoi) + en_attendant_hopital (que faire en attendant les secours/transport). NE PAS remplir actes_labo. Les instructions_immediates doivent être des gestes d'urgence immédiats.
+Ce système dominant DOIT guider : traitement, examens ET orientation spécialisée.
+
+══════════════════════════════════════════════════════════════
+RÈGLE 1 — URGENCE VITALE : DÉTECTION ET ANNONCE IMMÉDIATE
+══════════════════════════════════════════════════════════════
+Avant TOUT, demande-toi : "Ce patient peut-il mourir dans les 60 prochaines minutes ?"
+Patterns à détecter PAR SYSTÈME :
+
+RESPIRATOIRE  : SpO2 <88% + détresse → insuffisance respiratoire aiguë → O2 contrôlé + SMUR
+CARDIAQUE     : Douleur thoracique + neurovégétatif + ST+ → STEMI → coro <90min (PCI)
+NEUROLOGIQUE  : Déficit neurologique brutal → AVC → UNV <4h30 → thrombolyse si éligible
+INFECTIEUX    : Fièvre + hypotension + confusion → sepsis → urgences + réa
+HÉMORRAGIQUE  : Instabilité + saignement → choc → bloc opératoire
+
+→ urgence="haute" + score_confiance peut descendre à 60-70% (acceptable en urgence)
+→ Message PRINCIPAL = "URGENCE [SYSTÈME] → action dans les 10 prochaines minutes"
+→ NE PAS diluer avec différentiel long avant l'action
+
+══════════════════════════════════════════════════════════════
+RÈGLE 2 — TRAITEMENT : PRÉCISION PAR SYSTÈME, PAS GÉNÉRIQUE
+══════════════════════════════════════════════════════════════
+Pour chaque traitement proposé, tu DOIS préciser :
+  1. Pourquoi il est indiqué pour CE patient (indication spécifique)
+  2. Pourquoi il pourrait être dangereux si mal appliqué (contre-indication contextuelle)
+  3. L'objectif thérapeutique précis (ex: "SpO2 cible 88-92% en BPCO, pas 98%")
+
+EXEMPLES PAR SYSTÈME :
+► RESPIRATOIRE/BPCO exacerbée :
+  - Oxygène CONTRÔLÉ : objectif SpO2 88-92% (pas plus → risque hypercapnie)
+  - Salbutamol 2.5mg nébulisé ± ipratropium 0.5mg → bronchodilatation
+  - Prednisolone 40mg/j PO 5j → réduction inflammation bronchique
+  - Antibiotique si expectorations purulentes + fièvre : amoxicilline-acide clavulanique 1g x3/j
+  - PAS de diurétiques, PAS de nitrates, PAS de bêtabloquants sauf bradycardie
+
+► CARDIAQUE/STEMI :
+  - O2 si SpO2<94%, monitorage, VVP
+  - DAPT : aspirine 250mg IV + ticagrélor 180mg PO
+  - Anticoagulation : héparine non fractionnée 60UI/kg IV
+  - Appel cardiologie interventionnelle → salle de coronarographie
+
+► NEUROLOGIQUE/AVC ischémique :
+  - Position tête 0° (pas surélevée), glycémie contrôlée
+  - Thrombolyse IV si <4h30 et pas de contre-indication (score NIHSS)
+  - PAS d'antihypertenseurs sauf PA>220/120
+
+- Voie, dose, débit : rigoureux. Jamais mélanger PO et IV sans préciser.
+- Si urgence : "TRAITEMENT INITIAL — le traitement définitif sera adapté par l'équipe sur place"
+
+══════════════════════════════════════════════════════════════
+RÈGLE 3 — EXAMENS : UNIQUEMENT PERTINENTS POUR LA PATHOLOGIE
+══════════════════════════════════════════════════════════════
+Ne propose QUE les examens utiles pour confirmer ou traiter la pathologie dominante.
+Pour chaque examen, indique brièvement son intérêt spécifique.
+
+EXEMPLES :
+► Pathologie RESPIRATOIRE : GDS artériels, Rx thorax, NFS-CRP, PCT si infection
+  → PAS de BNP, PAS de troponine, PAS de coronarographie sauf signes cardiaques directs
+
+► Pathologie CARDIAQUE : ECG, troponine, BNP, écho cardiaque
+  → PAS de GDS en première intention sauf détresse respiratoire associée
+
+► Sepsis : hémocultures x2, lactates, NFS-CRP-PCT, bilan rénal et hépatique
+
+══════════════════════════════════════════════════════════════
+RÈGLE 4 — ORIENTATION : SPÉCIALITÉ ADAPTÉE AU SYSTÈME
+══════════════════════════════════════════════════════════════
+Mapping pathologie → structure d'accueil correcte :
+  BPCO/pneumonie/détresse respiratoire → Pneumologie / Réanimation respiratoire
+  STEMI/insuffisance cardiaque aiguë   → Cardiologie interventionnelle / USIC
+  AVC/TIA                              → Unité NeuroVasculaire (UNV)
+  Sepsis/choc                          → Urgences + Réanimation polyvalente
+  Appendicite/urgence chir             → Chirurgie digestive
+
+⚠️ NE JAMAIS orienter vers cardiologie interventionnelle pour une pathologie respiratoire.
+⚠️ NE JAMAIS orienter vers pneumologie pour un STEMI.
+
+Toujours inclure : (1) numéro à appeler 15/18/112, (2) mode de transport SMUR si instable,
+(3) type de structure précis (ex: "unité de soins intensifs respiratoires" pas "hôpital").
+
+══════════════════════════════════════════════════════════════
+RÈGLE 5 — RAISONNEMENT ÉTAPE PAR ÉTAPE (obligatoire)
+══════════════════════════════════════════════════════════════
+Dans "raisonnement_explicite", tu DOIS suivre cet ordre :
+  Étape 1 : Quel système organe est principalement atteint et pourquoi ?
+  Étape 2 : Quel diagnostic est le plus probable — quels signes le confirment ?
+  Étape 3 : Quel diagnostic dangereux est écarté et pour quelle raison précise ?
+  Étape 4 : Pourquoi ce traitement et pas un autre (justification spécifique au patient) ?
+
+══════════════════════════════════════════════════════════════
+RÈGLE 6 — HYPOTHÈSES
+══════════════════════════════════════════════════════════════
+- 1 hypothèse si diagnostic clairement dominant (>75%) et urgent à traiter
+- 2 si deux diagnostics sérieusement à considérer (ex: BPCO vs OAP)
+- 3 maximum. Ne force JAMAIS 3 si non justifié.
+- Les facteurs de risque forts (ATCD familial précoce, tabagisme, hypercholestérolémie) priment sur l'âge.
+
+══════════════════════════════════════════════════════════════
+RÈGLE 7 — NIVEAUX DE CONDUITE
+══════════════════════════════════════════════════════════════
+- "maison"      : symptômes bénins, pas de signe d'alarme
+- "laboratoire" : examens ambulatoires nécessaires, pas d'urgence vitale
+- "hopital"     : urgence ou plateau technique requis — préciser le service EXACT
 
 Réponds UNIQUEMENT en JSON valide, sans markdown ni texte supplémentaire."""
 
@@ -237,39 +343,92 @@ async def predictive_node(state: dict) -> dict:
     step3_output = state["step_outputs"]["step_3"]
     ctx = json.dumps(state["structured_data"], ensure_ascii=False, indent=2)
 
+    # Contexte géographique
+    patient_address = state.get("patient_address", "")
+    geo_context = ""
+    if patient_address:
+        geo_context = f"""
+CONTEXTE GÉOGRAPHIQUE ET ÉPIDÉMIOLOGIQUE :
+Localisation du patient : {patient_address}
+
+ADAPTATION GÉOGRAPHIQUE DU TRAITEMENT :
+- Afrique subsaharienne : liste OMS essentiels, cotrimoxazole > amox-clav, artéméther-luméfantrine si paludisme probable, éviter chaîne froide difficile
+- Maghreb / Afrique du Nord : génériques disponibles, automédication fréquente, coût à considérer
+- Europe (FR/BE/CH) : protocoles HAS/NICE, ordonnance sécurisée, molécules remboursées
+- Amérique latine / zones tropicales : toujours évoquer paludisme/dengue/typhoïde en DD si fièvre
+"""
+    else:
+        geo_context = """
+CONTEXTE : Protocoles standards européens / HAS / OMS si non précisé.
+"""
+
     # Prompt partagé — identique pour A et B
     SHARED_PROMPT = f"""Prompt diagnostique optimisé :
 {step3_output}
 
 Données patient originales :
 {ctx}
-
+{geo_context}
 INSTRUCTIONS CRITIQUES SUR LES HYPOTHÈSES :
 - Toujours proposer PLUSIEURS hypothèses (idéalement 2-3) même si l'une domine
 - Chaque hypothèse doit être cliniquement défendable, pas juste un remplissage
-- Les hypothèses en désaccord entre IA sont précieuses pour l'arbitrage — n'hésitez pas à défendre votre point de vue
-- Si un diagnostic alternatif est sérieux, mettez-le même à 20-30%, il compte
 - Justifiez en citant les signes SPÉCIFIQUES qui penchent pour ou contre
+- Si un diagnostic alternatif est sérieux, mettez-le même à 20-30%
+
+INSTRUCTIONS CRITIQUES SUR LE TRAITEMENT (champ traitement_suggere) :
+Tu es un clinicien senior. Pour le champ traitement_suggere, fournis un traitement CONCRET et IMMÉDIATEMENT ACTIONNABLE :
+
+1. PRIORISE les traitements de la phase AIGUË (ce qu'on fait maintenant)
+2. Format attendu — 3 à 5 lignes maximum, les plus importantes en premier :
+   - Ligne 1 : traitement principal (molécule + voie + posologie + durée)
+   - Ligne 2 : traitement complémentaire si nécessaire
+   - Ligne 3 : alternative si allergie ou indisponibilité
+   - Ligne 4 : mesure physique/non médicamenteuse clé (ex: oxygénothérapie si SpO2 < 94%)
+   NE PAS inclure : vaccinations futures, conseils de prévention secondaire, suivi à long terme
+3. Si affection VIRALE confirmée : état explicitement "Pas d'antibiotique indiqué (origine virale)"
+4. Si HOSPITALISATION : citer les traitements IV/urgents à initier en arrivée
+5. Si AUCUN traitement médicamenteux justifié : expliquer pourquoi en 1 phrase
+
+Exemples de bonne formulation :
+- "Amoxicilline 1g x3/j PO 7j. Alternative si allergie pénicilline: azithromycine 500mg J1 puis 250mg J2-J5. Paracétamol 1g x4/j si fièvre > 38.5°C."
+- "Salbutamol nébulisé 2.5mg toutes 20min x3 (phase aiguë). Prednisolone 40mg/j PO 5j. Oxygénothérapie si SpO2 < 92%."
+- "Pas d'antibiotique indiqué (rhinopharyngite virale). Paracétamol 1g x3/j. Sérum physiologique nasal 3x/j."
+
+La conduite DOIT répondre aux 4 questions cliniques dans l'ordre de priorité :
+Q1 — Quel diagnostic privilégier ? Q2 — Diagnostics redoutables à éliminer ?
+Q3 — Examens complémentaires ? Q4 — Prise en charge initiale ?
+
+⚠️ SI URGENCE VITALE (urgence="haute") :
+- traitement_suggere : commencer par "⚠️ TRAITEMENT INITIAL (avant prise en charge définitive sur place) :"
+  puis gestes dans l'ordre de priorité (voie veineuse → monitorage → molécule + voie + dose exacte)
+  terminer par "Le traitement définitif sera adapté par l'équipe médicale sur place."
+- instructions_immediates : commencer par "Appeler le 15 (SAMU) / 18 (pompiers) / 112 IMMÉDIATEMENT"
+  préciser : ne pas se déplacer seul, attendre les secours ou ambulance/SMUR
+- en_attendant_hopital : gestes précis, immédiats, réalisables sans médecin
+  (position, O2 si disponible, voie veineuse, contre-indications immédiates, surveillance)
+- raison_hospitalisation : niveau de soins requis + structure précise
+  (ex: "Centre avec cardiologie interventionnelle - salle de coronarographie" vs "Urgences générales")
 
 Génère le diagnostic. Réponds UNIQUEMENT en JSON valide :
 {{
   "hypotheses": [
-    {{"rang":1,"diagnostic":"...","probabilite":65,"cim10":"...","justification":"Justification de 2-3 phrases citant les signes cliniques clés pour et contre","examens":["..."]}},
-    {{"rang":2,"diagnostic":"...","probabilite":25,"cim10":"...","justification":"Pourquoi ce diagnostic alternatif doit rester dans le différentiel","examens":["..."]}},
-    {{"rang":3,"diagnostic":"...","probabilite":10,"cim10":"...","justification":"Diagnostic à éliminer formellement","examens":["..."]}}
+    {{"rang":1,"diagnostic":"...","probabilite":65,"cim10":"...","justification":"Si urgence vitale : commencer par 'URGENCE VITALE — [pattern reconnu]'. Puis : signes déterminants POUR et CONTRE.","examens":["..."]}},
+    {{"rang":2,"diagnostic":"...","probabilite":25,"cim10":"...","justification":"Pourquoi ce diagnostic reste dans le différentiel","examens":["..."]}}
   ],
   "urgence":"haute|moyenne|faible",
   "score_confiance":85,
   "conduite":{{
     "niveau":"maison|laboratoire|hopital",
-    "raison":"...",
-    "instructions_immediates":["..."],
-    "conseils_maison":["..."],
-    "actes_labo":["..."],
-    "raison_hospitalisation":"...",
-    "en_attendant_hopital":["..."]
+    "raison":"Q1 — [Diagnostic retenu] retenu car [signe clé]. Si urgence : 'URGENCE VITALE — action dans les 10 prochaines minutes.'",
+    "diagnostics_a_eliminer":["Q2 — [Diagnostic grave 1] éliminé si [examen/critère]","[Diagnostic grave 2] : [comment l'exclure]"],
+    "actes_labo":["Q3 — [Examen 1 : motif précis]","[Examen 2 pour éliminer diagnostic redoutable]"],
+    "traitement_suggere":"Q4 — [Si urgence] ⚠️ TRAITEMENT INITIAL : 1. [Geste prioritaire + dose + voie]. 2. [Second geste]. 3. [Molécule SI stable : dose + voie]. Contre-indiqué si [contexte]. Traitement définitif sur place. [Si non-urgent] Molécule + posologie + durée + alternative si allergie.",
+    "instructions_immediates":["[Si urgence] Appeler le 15 (SAMU) immédiatement — ne pas se déplacer seul","[Si urgence] Transport : ambulance/SMUR — pas de véhicule personnel","[Geste immédiat 2]"],
+    "conseils_maison":["Mesure non médicamenteuse clé","Signe d'alarme → reconsulter immédiatement si...","Quand reconsulter (délai)"],
+    "raison_hospitalisation":"[Service EXACT adapté au système atteint, ex: Pneumologie/Réa respiratoire pour pathologie pulmonaire, JAMAIS cardiologie si pas de signe cardiaque direct] — Appeler [15/18/112] — Transport : [SMUR si instable / ambulance / personnel si stable]",
+    "en_attendant_hopital":["⏱️ EN ATTENDANT LES SECOURS — geste 1 précis avec technique (ex: position demi-assise si dyspnée)","Geste 2 (ex: O2 si disponible, objectif SpO2 > X%)","NE PAS donner : [contre-indications immédiates]","Surveiller : [constante critique] toutes les X minutes","Prévenir l'hôpital d'arrivée : [numéro]"]
   }},
-  "raisonnement_explicite": "Expliquer en 3-4 phrases POURQUOI ce diagnostic a été retenu : quels éléments cliniques sont déterminants, quels diagnostics ont été écartés et pourquoi"
+  "raisonnement_explicite": "4 phrases obligatoires : (1) Système organe principal atteint : [respiratoire/cardiaque/neuro/etc] — preuves cliniques. (2) Diagnostic retenu : signe le plus déterminant POUR et pourquoi un autre a été écarté. (3) Traitement choisi : pourquoi indiqué pour CE patient, risque si mal appliqué, objectif thérapeutique précis. (4) Orientation : service EXACT choisi et pourquoi ce service et pas un autre."
 }}"""
 
     # ── Appel IA A & B en parallèle (asyncio + executor) ────────────────────
@@ -387,17 +546,33 @@ async def analyze_document(image_base64: str, media_type: str, filename: str) ->
     Analyse un document médical ou une image clinique via llama-4-scout.
     Appelée par l'endpoint /api/analyze-document.
     """
-    file_type = "radiographie/image médicale" if media_type.startswith("image/") else "document médical (PDF/scan)"
+    # Détection intelligente du type de fichier
+    fname_lower = filename.lower()
+    if media_type == "application/pdf":
+        file_type = "document PDF médical"
+    elif any(k in fname_lower for k in ["radio","rx","rayon","xray","scanner","irm","echo"]):
+        file_type = "image radiologique"
+    elif any(k in fname_lower for k in ["ecg","cardio","electro"]):
+        file_type = "ECG ou tracé cardiaque"
+    elif any(k in fname_lower for k in ["bilan","analyse","labo","resultat"]):
+        file_type = "bilan biologique"
+    elif media_type.startswith("image/"):
+        file_type = "photo clinique"
+    else:
+        file_type = "document médical"
 
-    prompt = f"""Analyse ce {file_type} ({filename}) dans un contexte médical clinique.
-Extrais et synthétise :
-- Tous les résultats, valeurs, mesures visibles
-- Anomalies, signes pathologiques identifiables
-- Conclusions ou interprétations présentes dans le document
-- Tout élément cliniquement pertinent pour le diagnostic
+    prompt = f"""Analyse ce {file_type} nommé "{filename}" dans un contexte médical clinique.
+IMPORTANT : Ne suppose pas le type de document, décris uniquement ce que tu vois réellement.
+Fournis une description clinique courte (2-3 phrases max) :
+- Décris précisément ce qui est visible (lésion, plaie, résultat, tracé, etc.)
+- Mentionne les éléments anormaux ou cliniquement pertinents
+- Évite les suppositions sur ce que c'est si ce n'est pas clair
+- Si l'image est floue ou non médicale, indique-le simplement"""
 
-Sois précis et exhaustif. Si c'est une image radiologique, décris les findings.
-Si c'est un bilan biologique, liste les valeurs anormales avec les normes."""
+    try:
+        return call_vision(image_base64, media_type, prompt)
+    except Exception as e:
+        return f"[Analyse indisponible : {str(e)}]"
 
     try:
         return call_vision(image_base64, media_type, prompt)

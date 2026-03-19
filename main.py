@@ -61,24 +61,122 @@ async def analyze_document(payload: dict):
 
 @app.post("/api/pipeline/run")
 async def run_diagnostic_pipeline(request: PipelineRequest):
-    """Phase 3 — Pipeline LangGraph en 4 nœuds."""
+    """Phase 3 — Pipeline LangGraph multi-modèles."""
     import traceback
     try:
         initial_state = {
             "structured_data": request.structured_data.model_dump(),
             "image_analysis":  request.image_analysis or "",
+            "patient_address": getattr(request, "patient_address", "") or "",
             "step_outputs":    {},
             "current_step":    0,
             "diagnostic":      None,
+            "prompt_final":    None,
         }
         final_state = await pipeline.ainvoke(initial_state)
         return {
-            "step_outputs": final_state["step_outputs"],
-            "diagnostic":   final_state["diagnostic"],
+            "step_outputs":  final_state["step_outputs"],
+            "diagnostic":    final_state["diagnostic"],
+            "prompt_final":  final_state.get("prompt_final", ""),
+            "step_4_detail": final_state["step_outputs"].get("step_4_detail", ""),
         }
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/export/prompt")
+async def export_prompt(payload: dict):
+    """Génère un fichier texte du prompt final + justifications pour téléchargement."""
+    from fastapi.responses import Response
+    diag     = payload.get("diagnostic", {})
+    prompt   = payload.get("prompt_final", "")
+    detail   = payload.get("step_4_detail", "")
+    patient  = payload.get("structured_data", {})
+
+    lines = [
+        "=" * 70,
+        "PIPELINE DIAGNOSTIC IA — RAPPORT D'EXPLICABILITÉ",
+        "=" * 70,
+        "",
+        f"Patient : {patient.get('motif_consultation', 'N/A')}",
+        f"Urgence : {diag.get('urgence', 'N/A')}",
+        f"Score de confiance : {diag.get('score_confiance', 'N/A')}%",
+        "",
+        "─" * 70,
+        "PROMPT FINAL SOUMIS AUX MODÈLES",
+        "─" * 70,
+        prompt,
+        "",
+        "─" * 70,
+        "DIAGNOSTIC FINAL",
+        "─" * 70,
+    ]
+    for h in diag.get("hypotheses", []):
+        lines += [
+            f"\nHypothèse #{h.get('rang')} — {h.get('diagnostic')} ({h.get('probabilite')}%)",
+            f"CIM-10 : {h.get('cim10', 'N/A')}",
+            f"Justification : {h.get('justification', 'N/A')}",
+            f"Examens : {', '.join(h.get('examens', []))}",
+        ]
+
+    lines += [
+        "",
+        "─" * 70,
+        "RAISONNEMENT EXPLICITE",
+        "─" * 70,
+        diag.get("raisonnement_explicite", "N/A"),
+    ]
+
+    consensus = diag.get("consensus", {})
+    if consensus:
+        lines += [
+            "",
+            "─" * 70,
+            "CONSENSUS MULTI-MODÈLES",
+            "─" * 70,
+            f"Accord : {consensus.get('accord_ia', 'N/A')}",
+            f"Points d'accord : {consensus.get('point_accord', 'N/A')}",
+            f"Points de divergence : {consensus.get('point_divergence', 'N/A')}",
+            f"Arbitrage : {consensus.get('arbitrage', 'N/A')}",
+            "",
+            f"IA A ({consensus.get('avis_ia_a', {}).get('diagnostic_principal', 'N/A')}) — {consensus.get('avis_ia_a', {}).get('probabilite', 'N/A')}%",
+            f"  → {consensus.get('avis_ia_a', {}).get('specificite', 'N/A')}",
+            "",
+            f"IA B ({consensus.get('avis_ia_b', {}).get('diagnostic_principal', 'N/A')}) — {consensus.get('avis_ia_b', {}).get('probabilite', 'N/A')}%",
+            f"  → {consensus.get('avis_ia_b', {}).get('specificite', 'N/A')}",
+        ]
+
+    if detail:
+        try:
+            d = json.loads(detail)
+            lines += [
+                "",
+                "─" * 70,
+                "DÉTAIL TECHNIQUE DES MODÈLES",
+                "─" * 70,
+                f"Modèle A : {d.get('ia_a', {}).get('model', 'N/A')}",
+                f"Modèle B : {d.get('ia_b', {}).get('model', 'N/A')}",
+                f"Arbitre  : {d.get('ia_c', {}).get('model', 'N/A')}",
+            ]
+        except Exception:
+            pass
+
+    lines += [
+        "",
+        "─" * 70,
+        "⚠️  Aide à la décision uniquement.",
+        "    Le diagnostic final relève de la responsabilité exclusive du médecin.",
+        "─" * 70,
+    ]
+
+    content_str = "\n".join(lines)
+
+    return Response(
+        content=content_str.encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=rapport_diagnostic.txt"},
+    )
 
 
 @app.post("/api/questions/generate")

@@ -45,8 +45,9 @@ class StructuredPatientData(BaseModel):
 
 
 class PipelineRequest(BaseModel):
-    structured_data: StructuredPatientData
-    image_analysis:  Optional[str] = None   # résultat analyse vision injecté dans nœud ①
+    structured_data:  StructuredPatientData
+    image_analysis:   Optional[str] = None   # résultat analyse vision injecté dans nœud ①
+    patient_address:  Optional[str] = None   # adresse patient pour contexte épidémiologique
 
 
 class DiagnosticHypothesis(BaseModel):
@@ -64,6 +65,8 @@ class ConduiteASuivre(BaseModel):
     instructions_immediates: list[str]      = Field(default_factory=list)
     conseils_maison:         list[str]      = Field(default_factory=list)
     actes_labo:              list[str]      = Field(default_factory=list)
+    diagnostics_a_eliminer:  list[str]      = Field(default_factory=list)
+    traitement_suggere:      Optional[str]  = None
     raison_hospitalisation:  Optional[str]  = None
     en_attendant_hopital:    list[str]      = Field(default_factory=list)
 
