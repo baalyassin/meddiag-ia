@@ -1,3 +1,22 @@
+""""
+PROTECTION – DROITS D’AUTEUR – 2026
+
+ 
+
+© 2026 Prénom NOM1, Prénom NOM2, Prénom NOM3
+
+ 
+
+Ce travail (code source + documents associés) est protégé par le droit d’auteur.
+
+Autorisation limitée à la lecture seule pour évaluation du cours uniquement.
+
+Aucune cession de droits. Toute autre utilisation (reproduction, modification,
+
+exploitation pédagogique ou commerciale) interdite sans accord écrit préalable.
+
+"""
+
 """
 Pipeline Diagnostic Médical par IA — FastAPI
 """

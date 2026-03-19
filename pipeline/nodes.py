@@ -1,4 +1,24 @@
 """
+
+PROTECTION – DROITS D’AUTEUR – 2026
+
+ 
+
+© 2026 Prénom NOM1, Prénom NOM2, Prénom NOM3
+
+ 
+
+Ce travail (code source + documents associés) est protégé par le droit d’auteur.
+
+Autorisation limitée à la lecture seule pour évaluation du cours uniquement.
+
+Aucune cession de droits. Toute autre utilisation (reproduction, modification,
+
+exploitation pédagogique ou commerciale) interdite sans accord écrit préalable.
+
+"""
+
+"""
 Nœuds du Pipeline LangGraph
 LLM texte  : Groq llama-3.3-70b-versatile
 LLM vision : Groq meta-llama/llama-4-scout-17b-16e-instruct
