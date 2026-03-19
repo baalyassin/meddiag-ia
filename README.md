@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/26121621/README.md)
 # MedDiag IA 🏥
 
 > **Diagnostic médical assisté par intelligence artificielle**  
