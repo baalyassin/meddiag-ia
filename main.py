@@ -3,7 +3,7 @@ PROTECTION – DROITS D’AUTEUR – 2026
 
  
 
-© 2026 Prénom NOM1, Prénom NOM2, Prénom NOM3
+© 2026 
 
  
 
