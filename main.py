@@ -100,8 +100,10 @@ async def run_diagnostic_pipeline(request: PipelineRequest):
             "step_4_detail": final_state["step_outputs"].get("step_4_detail", ""),
         }
     except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        import sys
+        traceback.print_exc(file=sys.stdout)
+        sys.stdout.flush()
+        raise HTTPException(status_code=500, detail=traceback.format_exc())
 
 
 @app.post("/api/export/prompt")

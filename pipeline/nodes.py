@@ -35,8 +35,8 @@ GROQ_API_KEY   = os.getenv("GROQ_API_KEY")
 PREP_MODEL    = "meta-llama/llama-4-scout-17b-16e-instruct"  # Init/Gen/Eval — rapide, quota illimité
 # Nœud 4 : multi-LLM (quotas séparés)
 TEXT_MODEL    = "llama-3.3-70b-versatile"                    # IA A — quota 100k/j
-MODEL_B       = "moonshotai/kimi-k2-instruct"                # IA B — 262k ctx, quota séparé
-MODEL_ARBITER = "openai/gpt-oss-120b"                        # IA C — arbitre, quota séparé
+MODEL_B       = "llama-3.1-8b-instant"                       # IA B — quota séparé
+MODEL_ARBITER = "meta-llama/llama-4-scout-17b-16e-instruct"  # IA C — arbitre, quota séparé
 VISION_MODEL  = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 
@@ -333,7 +333,7 @@ pour l'étape prédictive finale.""",
     }
 
 
-def _parse_diag(raw: str) -> dict | None:
+def _parse_diag(raw: str) -> "dict | None":
     """Parse JSON diagnostique depuis la réponse LLM."""
     try:
         clean = raw.replace("```json", "").replace("```", "").strip()
