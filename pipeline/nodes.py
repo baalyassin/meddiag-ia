@@ -32,12 +32,14 @@ from groq import Groq
 
 GROQ_API_KEY   = os.getenv("GROQ_API_KEY")
 # Nœuds 1-3 : modèle léger pour économiser les tokens quotidiens
-PREP_MODEL    = "meta-llama/llama-4-scout-17b-16e-instruct"  # Init/Gen/Eval — rapide, quota illimité
+# NB: les anciens IDs (llama-4-scout, llama-3.3-70b-versatile, llama-3.1-8b-instant)
+# ont été retirés du catalogue Groq ; remplacés par les modèles actuellement servis.
+PREP_MODEL    = "openai/gpt-oss-20b"                         # Init/Gen/Eval — rapide, quota illimité
 # Nœud 4 : multi-LLM (quotas séparés)
-TEXT_MODEL    = "llama-3.3-70b-versatile"                    # IA A — quota 100k/j
-MODEL_B       = "llama-3.1-8b-instant"                       # IA B — quota séparé
-MODEL_ARBITER = "meta-llama/llama-4-scout-17b-16e-instruct"  # IA C — arbitre, quota séparé
-VISION_MODEL  = "meta-llama/llama-4-scout-17b-16e-instruct"
+TEXT_MODEL    = "openai/gpt-oss-120b"                        # IA A — quota 100k/j
+MODEL_B       = "qwen/qwen3.6-27b"                           # IA B — quota séparé
+MODEL_ARBITER = "openai/gpt-oss-120b"                        # IA C — arbitre, quota séparé
+VISION_MODEL  = "openai/gpt-oss-120b"
 
 
 # ─── LLM helpers ─────────────────────────────────────────────────────────────
