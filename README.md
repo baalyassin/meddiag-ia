@@ -19,7 +19,11 @@ MedDiag IA est une plateforme web de diagnostic médical assisté par IA, conçu
 |---|---|---|
 | ![Écran de connexion](screenshots/landing.png) | ![Analyse en cours](screenshots/pipeline_running.png) | ![Résultats diagnostiques](screenshots/diagnostic_result.png) |
 
-**[▶ Voir la démo vidéo](screenshots/demo.webm)** (collecte → vérification → analyse multi-LLM → résultats)
+**Démo complète** (collecte → vérification → analyse multi-LLM → résultats) :
+
+![Démo MedDiag IA](screenshots/demo.gif)
+
+Version haute qualité : [screenshots/demo.mp4](screenshots/demo.mp4)
 
 ---
 
